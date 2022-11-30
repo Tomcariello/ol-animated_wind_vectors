@@ -5,49 +5,73 @@ import VectorSource from "ol/source/Vector";
 import Tile from "ol/layer/Tile";
 import View from "ol/View";
 import OSM from "ol/source/OSM";
-import { fromLonLat } from "ol/proj";
 import WebGLPointsLayer from "ol/layer/WebGLPoints";
 import WebGLPointsLayerRenderer from 'ol/renderer/webgl/PointsLayer';
+import {fromLonLat} from 'ol/proj';
 
 class CustomWebGLPointsLayer extends WebGLPointsLayer {
   createRenderer() {
     return new WebGLPointsLayerRenderer(this, { 
-      // "attributes" are values that are passed into the shaders
+      // "attributes" are passed into the shaders
       attributes: [
         {
           name: 'a_coords',
           callback: function(feature) {
-            // This callback is executed for each feature
-            
-            // Create an array of the X & Y positions for GLSL.
-            const coordinatesArr = [ feature.values_[0],feature.values_[1] ];
-
+            // Array of XY positions per feature to pass to the vertexShader.
+            const coordinatesArr = [ 
+              feature.values_[0],
+              feature.values_[1],
+            ];
+            console.log(coordinatesArr);
             return coordinatesArr;
           }
         },
+        {
+          name: 'a_color',
+          callback: function(feature) {
+            // Create an array of some colors & select one at random
+            const colorsArr = {
+              "red":   `[1.0, 0.0, 0.0]`,
+              "green": `[0.0, 1.0, 0.0]`,
+              "blue":  `[0.0, 0.0, 1.0]`,
+            };
+
+            const obj = Object.keys(colorsArr);
+            const randomColor = obj[Math.floor(Math.random() * obj.length)];
+            const vec3_color = colorsArr[randomColor];
+
+            return vec3_color;
+          }
+        }
       ],
-      // These are the default Open Layers Shaders
-      // https://openlayers.org/en/latest/apidoc/module-ol_webgl_PostProcessingPass-WebGLPostProcessingPass.html
       vertexShader: 
       `
+      // Specify the precision level to use with floats in this shader.
       precision mediump float;
 
+      // Declare attributes; these values are passed into GLSL from JavaScript
       attribute vec2 a_coords;
-      varying vec2 v_texCoord;
-      varying vec2 v_screenCoord;
-      
-      uniform vec2 u_screenSize;
-      
+      attribute vec3 a_color;
+
+      // Declare varyings; these values will be passed along to the fragmentShader
+      varying vec3 v_color;
+
       void main() {
-        v_texCoord = a_coords * 0.5 + 0.5;
-        v_screenCoord = v_texCoord * u_screenSize;
-        gl_Position = vec4(a_coords, 0.0, 1.0);
+        v_color = vec3(a_color); // set the value of v_color <-- This doesn't work?
+        gl_Position = vec4(a_coords, 0.0, 1.0); // Set the position
       }
       `,
-      // This should paint all fragments green (values are RGB + Alpha)
+      // This should paint all fragments the value of v_color
       fragmentShader: `
+      precision mediump float;
+
+      // Declare varyings; these values have been passed along from the vertexShader
+      varying vec3 v_color;
+
       void main() {
-        gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+        gl_FragColor = vec4(v_color, 0.5); // Set the color dynamically - DOESN'T WORK
+        // gl_FragColor = vec4(1.0, 0.0, 1.0, 0.5); // pink; WORKS!
+        // gl_FragColor = vec4(1, 0, 0, 0.5); // red; WORKS! (testing ints, not floats)
       }
       `
     })
@@ -70,13 +94,13 @@ fetch("data/weather.json")
     const map = new Map({
       layers: [
         new Tile({ source: new OSM() }),
-        // new WebGLPointsLayer({
+        // new WebGLPointsLayer({ // Use this if you want to see the points rendered statically
         new CustomWebGLPointsLayer({
           source: new VectorSource({ features: featuresArr }),
           style: {
             symbol: {
               symbolType: "triangle",
-              size: 6,
+              size: 16,
               color: "red",
               rotation: ["*", ["get", "deg"], Math.PI / 180],
               rotateWithView: true,
@@ -96,15 +120,17 @@ function processData(data) {
     const { size, coord, wind } = weatherData[i];
 
     // Convert from lon/lat to floats using the provided OL method
-    // const coordinates = fromLonLat([coord.lon, coord.lat]);
-    const coordinates = [coord.xPos, coord.yPos];
+    const coordinates = fromLonLat([coord.xPos, coord.yPos]);
 
-    // Create this feature & add wind properties
+    // This is a hack to get me values in the 0 to 1 range
+    const glslCoordinates = [coord.xPos % 1, coord.yPos % 1];
+
     const feature = new Feature(new Point(coordinates));
     feature.setProperties(coordinates);
+    feature.setProperties(glslCoordinates);
     feature.setProperties(wind);
 
-    // Push feature to the array
     featuresArr[i] = feature;
   }
+  console.log(featuresArr);
 }
