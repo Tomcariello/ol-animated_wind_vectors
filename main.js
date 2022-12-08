@@ -14,19 +14,19 @@ import { data as sampleWindData } from './data/sampleWindData.js' ;
 const featuresArr = [];
 processData(sampleWindData);
 
-function processData(weatherData) {
-  for (let i = 0; i < weatherData.length; ++i) {
-    const { coord, wind } = weatherData[i];
+function processData(sampleWindData) {
+  for (let i = 0; i < sampleWindData.length; ++i) {
+    const { coord, wind } = sampleWindData[i];
     const coordinates = fromLonLat([coord.xPos, coord.yPos]);
-    const feature = new Feature(new Point(coordinates)); // This must be set for the blue/yellow layers to render
-    // feature.setProperties(coordinates); // This is NOT required for rendering
+    const feature = new Feature(new Point(coordinates));
     
     // This sets "speed" & "degree" on the feature
     feature.setProperties({'speed': wind.speed});
-    feature.setProperties({'featureColor': '1.0'});
+    feature.setProperties({'featureColorRed': Math.random()});
+    feature.setProperties({'featureColorGreen': Math.random()});
+    feature.setProperties({'featureColorBlue': Math.random()});
     featuresArr[i] = feature;
    }
-  //  console.log(featuresArr);
 }
 
 // A custom renderer intended to draw GLSL output to a layer
@@ -35,125 +35,85 @@ class CustomWebGLPointsLayer extends WebGLPointsLayer {
     return new WebGLPointsLayerRenderer(this, { 
       attributes: [
         {
-          name: 'vec2 a_coords',
+          name: 'Xcoord',
           callback: function(feature) {
-            return [ 
-              feature.values_[0],
-              feature.values_[1],
-            ];
+            return 0.25;
           }
         },
         {
-          name: 'vec4 a_color',
+          name: 'Ycoord',
           callback: function(feature) {
-            // Always return red for now
-            return [0.0, 1.0, 0.0, 0.5];
+            return 0.75;
+          }
+        },
+        {
+          name: 'featureColorRed',
+          callback: function(feature) {
+            return feature.values_.featureColorRed;
+          }
+        },
+        {
+          name: 'featureColorGreen',
+          callback: function(feature) {
+            return feature.values_.featureColorGreen;
+          }
+        },
+        {
+          name: 'featureColorBlue',
+          callback: function(feature) {
+            return  feature.values_.featureColorBlue;
           }
         },
       ],
+
+      // You can see these shaders being processed in /ol/webgl/Helper.js line ~827
       vertexShader: 
       `
-      attribute vec2 a_coordinates;
-      attribute float a_featureColor;
-      varying vec4 v_featureColor;
+        attribute vec2 a_coordinates;
+        attribute float a_featureColorRed;
+        attribute float a_featureColorGreen;
+        attribute float a_featureColorBlue;
+        
+        varying vec4 v_featureColor;
 
-      void main() {
-        v_featureColor = vec4(a_featureColor, 0.0, 0.0, 1.0);
-        gl_Position = vec4(a_coordinates, 0.0, 1.0);
-      }`,
-      // This should paint all fragments the value of v_featureColor
-      fragmentShader: `
-      precision mediump float;
+        void main() {
+          v_featureColor = vec4(a_featureColorRed, a_featureColorGreen, a_featureColorBlue, 0.5);
+          gl_Position = vec4(a_coordinates, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: 
+      `
+        precision mediump float;
+        varying vec4 v_featureColor;
 
-      // Declare varyings; these values have been passed along from the vertexShader
-      varying vec4 v_featureColor;
-
-      void main() {
-        gl_FragColor = v_featureColor;
-      }
+        void main() {
+          gl_FragColor = v_featureColor;
+        }
       `
     })
   }
 };
 
-// Create various layers to include on map
-const blueTriangleLayer = new WebGLPointsLayer({ 
-  source: new VectorSource({ features: featuresArr }),
-  style: {
-    symbol: {
-      symbolType: "triangle",
-      size: 24,
-      color: "blue",
-      rotation: ["*", ["get", "degree"], Math.PI / 180],
-    },
-  },
-  zIndex: 2,
-});
 
-const yellowCircleLayer = new WebGLPointsLayer({
-  source: new VectorSource({ features: featuresArr }),
-  style: {
-    symbol: {
-      symbolType: "circle",
-      size: 10,
-      color: "yellow",
-    },
-  },
-  zIndex: 3,
-});
-
-
-// With a WebGLPointsLayer black squares are rendered **regardless** of other layers settings.
-// const customGLSLLayer = new WebGLPointsLayer({
-
-// Black squares are also rendered correctly with a Layer extension that is unmodified
-// const customGLSLLayer = new CopyWebGLPointsLayer({
-
-// But with the CustomWebGLPointsLayer (which calls createRenderer() & sets GLSL properties)
-// output only renders if BOTH blueTriangleLayer AND yellowCircleLayer are **disabled**.
 const customGLSLLayer = new CustomWebGLPointsLayer({
   source: new VectorSource({ features: featuresArr }),
   style: {
     symbol: {
-      // declaring style expressions initializes the variable into GLSL
-      // color: ["get", "featureColor"],
-      // size: ["get", "degree"],
-      // fill:  ["get", "coordinates"],
       symbolType: "square",
-      // size: 4,
-      color: "red",
     },
-    // How is this supposed to work???
-    renderer: function (frameState) {
-      // new CustomWebGLPointsLayer();
-    }
   },
   zIndex: 10,
-  Options: {
-    attributes: {
-      name: 'featureColor',
-      callback: function(feature) {
-        return 1.0;
-      }
-    },
-  },
 });
 
-// With EITHER blueTriangleLayer OR yellowCircleLayer active customGLSLLayer does NOT render
-// With BOTH blueTriangleLayer AND yellowCircleLayer inactive customGLSLLayer DOES render
 const map = new Map({
   layers: [
     new Tile({ 
       source: new OSM(), 
       zIndex: 1, 
     }),
-    blueTriangleLayer,
-    yellowCircleLayer,
+    customGLSLLayer
   ],
   target: "map",
   view: new View({center: [0, 0],zoom: 0,}),
 });
-map.addLayer(customGLSLLayer);
-
-// console.log(map.getLayers());
  
